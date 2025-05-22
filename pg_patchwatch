@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- Funktionen ---
+# --- Functions ---
 
 get_local_pg_version() {
     if ! command -v psql &> /dev/null; then
@@ -49,7 +49,7 @@ check_version() {
     fi
 }
 
-# --- Hauptlogik ---
+# --- Main logic ---
 
 if [[ "$1" == "--json" ]]; then
     shift
