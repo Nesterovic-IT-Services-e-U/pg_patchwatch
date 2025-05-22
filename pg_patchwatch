@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# --- Funktionen ---
+
+get_local_pg_version() {
+    if ! command -v psql &> /dev/null; then
+        echo "❌ psql not found. Is PostgreSQL installed?"
+        exit 1
+    fi
+    psql -V | grep -oP '\d+\.\d+' | head -n 1
+}
+
+get_docker_pg_version() {
+    container="$1"
+    if ! docker ps --format '{{.Names}}' | grep -qw "$container"; then
+        echo "❌ Docker container '$container' not found or not running."
+        exit 1
+    fi
+    docker exec "$container" psql -V 2>/dev/null | grep -oP '\d+\.\d+' | head -n 1
+}
+
+get_latest_pg_versions() {
+    curl -s https://www.postgresql.org/docs/release/ | \
+    grep -oP '\b(?:PostgreSQL|Release|Notes|version)?\s*\K\d+\.\d+' | sort -V | \
+    awk -F. '{
+        major=$1; minor=$2;
+        if (minor > max[major]) max[major]=minor
+    }
+    END {
+        for (m in max) print m "." max[m]
+    }'
+}
+
+check_version() {
+    local_version="$1"
+    major="${local_version%%.*}"
+    latest_version=$(get_latest_pg_versions | grep "^$major\." || true)
+
+    if [[ -z "$latest_version" ]]; then
+        echo "ℹ️ No official release info found for PostgreSQL $major. Might be too new."
+        return
+    fi
+
+    if [[ "$local_version" == "$latest_version" ]]; then
+        echo "✅ PostgreSQL $local_version is up to date."
+    else
+        echo "⚠️ PostgreSQL $local_version is outdated. Latest is $latest_version"
+        echo "💡 Consider updating for security and bugfixes."
+    fi
+}
+
+# --- Hauptlogik ---
+
+if [[ "$1" == "--json" ]]; then
+    shift
+    JSON=true
+else
+    JSON=false
+fi
+
+if [[ -n "$1" ]]; then
+    version=$(get_docker_pg_version "$1")
+    source="docker:$1"
+else
+    version=$(get_local_pg_version)
+    source="local"
+fi
+
+major="${version%%.*}"
+latest=$(get_latest_pg_versions | grep "^$major\." || echo "unknown")
+
+if [ "$JSON" = true ]; then
+    up_to_date="false"
+    [[ "$version" == "$latest" ]] && up_to_date="true"
+    echo "{"
+    echo "  \"local_version\": \"$version\","
+    echo "  \"latest_version\": \"$latest\","
+    echo "  \"up_to_date\": $up_to_date,"
+    echo "  \"source\": \"$source\""
+    echo "}"
+else
+    check_version "$version"
+fi
